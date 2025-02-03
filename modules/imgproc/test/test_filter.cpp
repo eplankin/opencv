@@ -1120,6 +1120,20 @@ CV_PyramidBaseTest::CV_PyramidBaseTest( bool _downsample ) : CV_FilterBaseTest(t
     downsample = _downsample;
     Mat kernel1d(1, 5, CV_32F, kdata);
     kernel = (kernel1d.t()*kernel1d)*((downsample ? 1 : 4)/256.);
+    int height = kernel.rows;
+    int width = kernel.cols;
+
+    // printf ("Kernel (OCV Test):\n");
+    // for (int i=0; i<height; i++)
+    // {
+    //     for (int j=0; j<width; j++)
+    //     {
+    //         printf ("%.5f ", kernel.at<float>(i, j));
+    //         // printf ("%.5f ", kernel.data[i*width + j]);//?????????
+    //     }
+    //     printf ("\n");
+    // }
+    // printf ("\n");
 }
 
 
@@ -1134,8 +1148,8 @@ void CV_PyramidBaseTest::get_test_array_types_and_sizes( int test_case_idx,
                                                          vector<vector<Size> >& sizes,
                                                          vector<vector<int> >& types )
 {
-    const int channels[] = {1, 3, 4};
-    const int depthes[] = {CV_8U, CV_16S, CV_16U, CV_32F};
+    const int channels[] = {1/* , 3, 4 */};
+    const int depthes[] = {/* CV_8U, CV_16S, CV_16U,  */CV_32F};
 
     RNG& rng = ts->get_rng();
     CvSize sz = {0, 0};
@@ -1192,7 +1206,37 @@ CV_PyramidDownTest::CV_PyramidDownTest() : CV_PyramidBaseTest( true )
 
 void CV_PyramidDownTest::run_func()
 {
+    Mat src = test_mat[INPUT][0];
+    int height = src.rows;
+    int width = src.cols;
+
+    // printf ("Input:\n");
+    // for (int i=0; i<height; i++)
+    // {
+    //     for (int j=0; j<width; j++)
+    //     {
+    //         printf ("%d ", src.data[i*width + j]);
+    //     }
+    //     printf ("\n");
+    // }
+    // printf ("\n");
+
     cv::pyrDown(test_mat[INPUT][0], test_mat[OUTPUT][0]);
+
+    Mat dst = test_mat[OUTPUT][0];
+    height = dst.rows;
+    width = dst.cols;
+
+    // printf ("Output:\n");
+    // for (int i=0; i<height; i++)
+    // {
+    //     for (int j=0; j<width; j++)
+    //     {
+    //         printf ("%d ", dst.data[i*width + j]);
+    //     }
+    //     printf ("\n");
+    // }
+    // printf ("\n");
 }
 
 

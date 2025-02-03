@@ -1266,6 +1266,93 @@ static bool ocl_pyrUp( InputArray _src, OutputArray _dst, const Size& _dsz, int 
 
 }
 
+#if defined(HAVE_IPP)
+namespace cv
+{
+static bool ipp_pyrdown( InputArray _src, OutputArray _dst, const Size& _dsz, int borderType )
+{
+    CV_INSTRUMENT_REGION_IPP();
+#if IPP_VERSION_X100 >= 810 && !IPP_DISABLE_PYRAMIDS_DOWN
+    Size dsz = _dsz.empty() ? Size((_src.cols() + 1)/2, (_src.rows() + 1)/2) : _dsz;
+    Mat src = _src.getMat();
+    _dst.create( dsz, src.type() );
+    Mat dst = _dst.getMat();
+    {
+        bool isolated = (borderType & BORDER_ISOLATED) != 0;
+        int borderTypeNI = borderType & ~BORDER_ISOLATED;
+        if (borderTypeNI == BORDER_DEFAULT && (!src.isSubmatrix() || isolated) && dsz == Size((src.cols + 1)/2, (src.rows + 1)/2))
+        {
+            // typedef IppStatus (CV_STDCALL * ippiPyrDown)(const void* pSrc, int srcStep, void* pDst, int dstStep, IppiSize srcRoi, Ipp8u* buffer);
+            typedef IppStatus (CV_STDCALL * ippiPyrDownGetSize)(IppiSize srcRoi, Ipp32f rate, int kernelSize, int* pStateSize, int* pBufSize);
+            typedef IppStatus (CV_STDCALL * ippiPyrDownInit)(void**  state, IppiSize srcRoi, Ipp32f rate, /*Ipp16s and Ipp32f?*/void* pKernel, int kernelSize, int mode, Ipp8u* stateBuf, Ipp8u* buffer);
+            typedef IppStatus (CV_STDCALL * ippiPyrDown)(const void* pSrc, int srcStep, IppiSize srcRoiSize, void* pDst, int dstStep, IppiSize dstRoiSize, void* pState);
+            int type = src.type();
+            CV_SUPPRESS_DEPRECATED_START
+            ippiPyrDownGetSize pyrDownGetSizeFunc = type == CV_8UC1 ? (ippiPyrDownGetSize) ippiPyramidLayerDownGetSize_8u_C1R :
+                                                    type == CV_8UC3 ? (ippiPyrDownGetSize) ippiPyramidLayerDownGetSize_8u_C3R :
+                                                    type == CV_32FC1 ? (ippiPyrDownGetSize) ippiPyramidLayerDownGetSize_32f_C1R :
+                                                    type == CV_32FC3 ? (ippiPyrDownGetSize) ippiPyramidLayerDownGetSize_32f_C3R : 0;
+            ippiPyrDownInit pyrDownInitFunc = type == CV_8UC1 ? (ippiPyrDownInit) ippiPyramidLayerDownInit_8u_C1R :
+                                              type == CV_8UC3 ? (ippiPyrDownInit) ippiPyramidLayerDownInit_8u_C3R :
+                                              type == CV_32FC1 ? (ippiPyrDownInit) ippiPyramidLayerDownInit_32f_C1R :
+                                              type == CV_32FC3 ? (ippiPyrDownInit) ippiPyramidLayerDownInit_32f_C3R : 0;
+            ippiPyrDown pyrDownFunc = type == CV_8UC1 ? (ippiPyrDown) ippiPyramidLayerDown_8u_C1R :
+                                      type == CV_8UC3 ? (ippiPyrDown) ippiPyramidLayerDown_8u_C3R :
+                                      type == CV_32FC1 ? (ippiPyrDown) ippiPyramidLayerDown_32f_C1R :
+                                      type == CV_32FC3 ? (ippiPyrDown) ippiPyramidLayerDown_32f_C3R : 0;
+                                      
+            CV_SUPPRESS_DEPRECATED_END
+            if (pyrDownGetSizeFunc && pyrDownInitFunc && pyrDownFunc)
+            {
+                int pStateSize, pBufSize=0;
+                Ipp8u   *pStateBuf = NULL;
+                Ipp8u   *pBuffer   = NULL;
+                void   *state     = NULL;//?
+                IppiSize srcRoi = { src.cols, src.rows };
+                IppiSize dstRoi = { dst.cols, dst.rows };
+                //printf("src size = {%u, %u}\n", srcRoi.height, srcRoi.width);
+                printf("src cols = %d\n", src.cols);
+                printf("src rows = %d\n", src.rows);
+                //printf("dst size = {%u, %u}\n", dstRoi.height, dstRoi.width);
+                Ipp32f rate = 2.0;//?
+                int kernelSize = 5;
+                Ipp32f kernel[kernelSize] = { 1.f/16.f, 4.f/16.f, 6.f/16.f, 4.f/16.f, 1.f/16.f };//Ipp16s for other types????
+
+                CV_SUPPRESS_DEPRECATED_START//here or below?
+                // IppStatus ok = ippiPyrDownGetBufSize_Gauss5x5(srcRoi.width, dataType, src.channels(), &bufferSize);
+                IppStatus ok = pyrDownGetSizeFunc(srcRoi, rate, kernelSize, &pStateSize, &pBufSize);
+                if (pBufSize<0) printf("pBufSize negative;");
+                //printf("IppStatusGetSize = %d\n", ok );
+                //printf("pStateSize = %d\n", pStateSize );
+                //printf("pBufSize=%d\n",  pBufSize);
+                pStateBuf = ippsMalloc_8u(pStateSize);
+                pBuffer   = ippsMalloc_8u(pBufSize);
+
+                ok = pyrDownInitFunc(&state, srcRoi, rate, kernel, kernelSize, IPPI_INTER_LINEAR, pStateBuf, pBuffer);//state?
+
+                CV_SUPPRESS_DEPRECATED_END
+                if (ok >= 0)
+                {
+                    // Ipp8u* buffer = ippsMalloc_8u_L(pBufSize);//_L?????
+                    ok = pyrDownFunc(src.data, (int) src.step, srcRoi, dst.data, (int) dst.step, dstRoi, state);
+                    // ippsFree(buffer);
+                    if (ok >= 0)
+                    {
+                        CV_IMPL_ADD(CV_IMPL_IPP);
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+#else
+    CV_UNUSED(_src); CV_UNUSED(_dst); CV_UNUSED(_dsz); CV_UNUSED(borderType);
+#endif
+    return false;
+}
+}
+#endif
+
 #ifdef HAVE_OPENVX
 namespace cv
 {
@@ -1377,6 +1464,13 @@ void cv::pyrDown( InputArray _src, OutputArray _dst, const Size& _dsz, int borde
         CALL_HAL(pyrDown, cv_hal_pyrdown, src.data, src.step, src.cols, src.rows, dst.data, dst.step, dst.cols, dst.rows, depth, src.channels(), borderType);
     }
 
+#ifdef HAVE_IPP
+    bool isolated = (borderType & BORDER_ISOLATED) != 0;
+    int borderTypeNI = borderType & ~BORDER_ISOLATED;
+#endif
+    CV_IPP_RUN(borderTypeNI == BORDER_DEFAULT && (!_src.isSubmatrix() || isolated) && dsz == Size((_src.cols() + 1)/2, (_src.rows() + 1)/2),
+        ipp_pyrdown( _src,  _dst,  _dsz,  borderType));
+
     PyrFunc func = 0;
     if( depth == CV_8U )
         func = pyrDown_< FixPtCast<uchar, 8> >;
@@ -1403,41 +1497,65 @@ static bool ipp_pyrup( InputArray _src, OutputArray _dst, const Size& _dsz, int 
     CV_INSTRUMENT_REGION_IPP();
 
 #if IPP_VERSION_X100 >= 810 && !IPP_DISABLE_PYRAMIDS_UP
-    Size sz = _src.dims() <= 2 ? _src.size() : Size();
+    // Size sz = _src.dims() <= 2 ? _src.size() : Size();
     Size dsz = _dsz.empty() ? Size(_src.cols()*2, _src.rows()*2) : _dsz;
 
     Mat src = _src.getMat();
     _dst.create( dsz, src.type() );
     Mat dst = _dst.getMat();
-    int depth = src.depth();
+    // int depth = src.depth();
 
     {
         bool isolated = (borderType & BORDER_ISOLATED) != 0;
         int borderTypeNI = borderType & ~BORDER_ISOLATED;
         if (borderTypeNI == BORDER_DEFAULT && (!src.isSubmatrix() || isolated) && dsz == Size(src.cols*2, src.rows*2))
         {
-            typedef IppStatus (CV_STDCALL * ippiPyrUp)(const void* pSrc, int srcStep, void* pDst, int dstStep, IppiSize srcRoi, Ipp8u* buffer);
+            // typedef IppStatus (CV_STDCALL * ippiPyrUp)(const void* pSrc, int srcStep, void* pDst, int dstStep, IppiSize srcRoi, Ipp8u* buffer);
+            typedef IppStatus (CV_STDCALL * ippiPyrUpGetSize)(IppiSize dstRoi, Ipp32f rate, int kernelSize, int* pStateSize);
+            typedef IppStatus (CV_STDCALL * ippiPyrUpInit)(void**  state, IppiSize dstRoi, Ipp32f rate, /*Ipp16s and Ipp32f?*/void* pKernel, int kernelSize, int mode, Ipp8u* stateBuf);
+            typedef IppStatus (CV_STDCALL * ippiPyrUp)(const void* pSrc, int srcStep, IppiSize srcRoiSize, void* pDst, int dstStep, IppiSize dstRoiSize, void* pState);
             int type = src.type();
             CV_SUPPRESS_DEPRECATED_START
-            ippiPyrUp pyrUpFunc = type == CV_8UC1 ? (ippiPyrUp) ippiPyrUp_Gauss5x5_8u_C1R :
-                                  type == CV_8UC3 ? (ippiPyrUp) ippiPyrUp_Gauss5x5_8u_C3R :
-                                  type == CV_32FC1 ? (ippiPyrUp) ippiPyrUp_Gauss5x5_32f_C1R :
-                                  type == CV_32FC3 ? (ippiPyrUp) ippiPyrUp_Gauss5x5_32f_C3R : 0;
+            ippiPyrUpGetSize pyrUpGetSizeFunc = type == CV_8UC1 ? (ippiPyrUpGetSize) ippiPyramidLayerUpGetSize_8u_C1R :
+                                                    type == CV_8UC3 ? (ippiPyrUpGetSize) ippiPyramidLayerUpGetSize_8u_C3R :
+                                                    type == CV_32FC1 ? (ippiPyrUpGetSize) ippiPyramidLayerUpGetSize_32f_C1R :
+                                                    type == CV_32FC3 ? (ippiPyrUpGetSize) ippiPyramidLayerUpGetSize_32f_C3R : 0;
+            ippiPyrUpInit pyrUpInitFunc = type == CV_8UC1 ? (ippiPyrUpInit) ippiPyramidLayerUpInit_8u_C1R :
+                                              type == CV_8UC3 ? (ippiPyrUpInit) ippiPyramidLayerUpInit_8u_C3R :
+                                              type == CV_32FC1 ? (ippiPyrUpInit) ippiPyramidLayerUpInit_32f_C1R :
+                                              type == CV_32FC3 ? (ippiPyrUpInit) ippiPyramidLayerUpInit_32f_C3R : 0;
+            ippiPyrUp pyrUpFunc = type == CV_8UC1 ? (ippiPyrUp) ippiPyramidLayerUp_8u_C1R :
+                                  type == CV_8UC3 ? (ippiPyrUp) ippiPyramidLayerUp_8u_C3R :
+                                  type == CV_32FC1 ? (ippiPyrUp) ippiPyramidLayerUp_32f_C1R :
+                                  type == CV_32FC3 ? (ippiPyrUp) ippiPyramidLayerUp_32f_C3R : 0;
             CV_SUPPRESS_DEPRECATED_END
 
-            if (pyrUpFunc)
+            if (pyrUpGetSizeFunc && pyrUpInitFunc && pyrUpFunc)
             {
-                int bufferSize;
+                int pStateSize;
+                Ipp8u   *pStateBuf = NULL;
+                void   *state     = NULL;//?
+                Ipp32f rate = 2.0;//?
+                int kernelSize = 5;//?
+                Ipp32f kernel[kernelSize] = { 1.f, 4.f, 6.f, 4.f, 1.f };//*4! Ipp32f or Ipp16s?
                 IppiSize srcRoi = { src.cols, src.rows };
-                IppDataType dataType = depth == CV_8U ? ipp8u : ipp32f;
+                IppiSize dstRoi = { dst.cols, dst.rows };
+                // IppDataType dataType = depth == CV_8U ? ipp8u : ipp32f;
                 CV_SUPPRESS_DEPRECATED_START
-                IppStatus ok = ippiPyrUpGetBufSize_Gauss5x5(srcRoi.width, dataType, src.channels(), &bufferSize);
+                IppStatus ok = pyrUpGetSizeFunc(dstRoi, rate, kernelSize, &pStateSize);
+                pStateBuf = ippsMalloc_8u(pStateSize);
+
+                ok = pyrUpInitFunc(&state, dstRoi, rate, kernel, kernelSize, IPPI_INTER_LINEAR, pStateBuf);//state?
                 CV_SUPPRESS_DEPRECATED_END
                 if (ok >= 0)
                 {
-                    Ipp8u* buffer = ippsMalloc_8u_L(bufferSize);
-                    ok = pyrUpFunc(src.data, (int) src.step, dst.data, (int) dst.step, srcRoi, buffer);
-                    ippsFree(buffer);
+                    // Ipp8u* buffer = ippsMalloc_8u_L(bufferSize);
+                    // IppiPyramidState pState = type == CV_8UC1 ? (IppiPyramidState) IppiPyramidUpState_8u_C1R :
+                    //                           type == CV_8UC3 ? (IppiPyramidState) IppiPyramidUpState_8u_C3R :
+                    //                           type == CV_32FC1 ? (IppiPyramidState) IppiPyramidUpState_32f_C1R :
+                    //                           type == CV_32FC3 ? (IppiPyramidState) IppiPyramidUpState_32f_C3R : 0;//to initialize state????
+                    ok = pyrUpFunc(src.data, (int) src.step, srcRoi, dst.data, (int) dst.step, dstRoi, state);
+                    // ippsFree(buffer);
 
                     if (ok >= 0)
                     {
