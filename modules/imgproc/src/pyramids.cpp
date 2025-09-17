@@ -1325,8 +1325,8 @@ static bool ipp_pyrdown( InputArray _src, OutputArray _dst, const Size& _dsz, in
                 //printf("IppStatusGetSize = %d\n", ok );
                 //printf("pStateSize = %d\n", pStateSize );
                 //printf("pBufSize=%d\n",  pBufSize);
-                pStateBuf = ippsMalloc_8u(pStateSize);
-                pBuffer   = ippsMalloc_8u(pBufSize);
+                pStateBuf = (Ipp8u*)CV_IPP_MALLOC(pStateSize);
+                pBuffer   = (Ipp8u*)CV_IPP_MALLOC(pBufSize);
 
                 ok = pyrDownInitFunc(&state, srcRoi, rate, kernel, kernelSize, IPPI_INTER_LINEAR, pStateBuf, pBuffer);//state?
 
@@ -1543,7 +1543,7 @@ static bool ipp_pyrup( InputArray _src, OutputArray _dst, const Size& _dsz, int 
                 // IppDataType dataType = depth == CV_8U ? ipp8u : ipp32f;
                 CV_SUPPRESS_DEPRECATED_START
                 IppStatus ok = pyrUpGetSizeFunc(dstRoi, rate, kernelSize, &pStateSize);
-                pStateBuf = ippsMalloc_8u(pStateSize);
+                pStateBuf = (Ipp8u*)CV_IPP_MALLOC(pStateSize);
 
                 ok = pyrUpInitFunc(&state, dstRoi, rate, kernel, kernelSize, IPPI_INTER_LINEAR, pStateBuf);//state?
                 CV_SUPPRESS_DEPRECATED_END
